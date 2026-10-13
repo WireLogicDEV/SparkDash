@@ -28,4 +28,3 @@ Host PC (Linux): Python 3 (pyserial, psutil, subprocess).
 
 Microcontroller: C++ / Arduino IDE (Adafruit GFX & Adafruit SSD1306 libraries).
 <img width="473" height="572" alt="IMG_20261013_203938_520" src="https://github.com/user-attachments/assets/c3f97da0-aa5f-48c5-a231-a7742b1e69e3" />
-<img width="1664" height="1254" alt="20261013_192956" src="https://github.com/user-attachments/assets/57d75446-8ba5-4257-b8a0-aa69a4dde472" />
