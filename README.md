@@ -8,8 +8,6 @@ Key Features
 
 Real-Time Telemetry: Seamlessly fetches accurate data directly from the NVIDIA GPU via nvidia-smi and system RAM via the psutil library.
 
-Custom Boot Sequence: Features a cyberpunk-inspired startup animation with a loading progress bar, "NV SPARK" logo, and initialization sequence.
-
 Smart UI Layout: Implements dynamic font scaling. The C++ sketch automatically calculates string length and adjusts the layout to ensure that long VRAM values (e.g., "128/128 GiB") fit perfectly without breaking the 128x64 pixel grid.
 
 Reliable Background Daemon: Runs as a lightweight, auto-recovering systemd service on the Linux host. It starts automatically with the OS and handles accidental USB cable disconnects gracefully.
