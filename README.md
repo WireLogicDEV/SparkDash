@@ -1,29 +1,31 @@
-SparkDash: монитор внешних аппаратных ресурсов
-Обзор
-Компактный внешний ᰿паратный дгигатель plug-and-play, созданный спесиально для рабочей станции NVIDIA Spark. Он обеспечивает отслеживание в режиме реального времени критических системных показателей — использования VRAM (использованной/общей GiB), тем�
+SparkDash: External Hardware Resource Monitor
+Overview
+A compact, plug-and-play external hardware monitor built specifically for the NVIDIA Spark workstation. It provides real-time tracking of critical system metrics — VRAM usage (Used/Total GiB), GPU temperature (°C), and system RAM utilization (%) — displayed on a crisp OLED screen.
 
-Устройство подключается через один USB-кабель Тип-C, который обеспечивает как подачу питания, так и последовательную передачу данных.
+The device connects via a single Type-C USB cable, which handles both power delivery and serial data transmission.
 
-Ключевые особенности
+Key Features
 
-Тельеметрия в еальѻьном вемен: лгко извлекаѵт тѾчные данные непѾссрѵдственно из грѰфичѵскго прѾцѵссѾр NVIDIA чѵз nvidia-smi и системной опѵЀации паѼяти чѵз би�
+Real-Time Telemetry: Seamlessly fetches accurate data directly from the NVIDIA GPU via nvidia-smi and system RAM via the psutil library.
 
-Умный макет пользовательского интерфейса: реализует динамическое масштабирование шрифтов. Эскиз C++ автоматически вычисляет длину строки и настраивает макет, чтобы гарантировать, что длинные значения VRAM (например, «128/128 ГиБ») идеальн
+Custom Boot Sequence: Features a cyberpunk-inspired startup animation with a loading progress bar, "NV SPARK" logo, and initialization sequence.
 
-Надежный фоновый демон: работает как легкая служба автоматического восстановления systemd на хосте Linux. Он запускается автоматически вместе с ОС и корректно обрабатывает случайные отключения USB-кабеля.
+Smart UI Layout: Implements dynamic font scaling. The C++ sketch automatically calculates string length and adjusts the layout to ensure that long VRAM values (e.g., "128/128 GiB") fit perfectly without breaking the 128x64 pixel grid.
 
-Аппаратный стек
+Reliable Background Daemon: Runs as a lightweight, auto-recovering systemd service on the Linux host. It starts automatically with the OS and handles accidental USB cable disconnects gracefully.
 
-Микроконтроль: Arduino Nano V3 (Type-C, ATmega328P).
+Hardware Stack
 
-Дисплей: 0,96-дюймовый OLED-дисплей (I2C, телефон SSD1306, 128x64, белые диски).
+Microcontroller: Arduino Nano V3 (Type-C, ATmega328P).
 
-Корпус: индивидуальный модульный корпус, напечатанный на 3D-принтере (черно-белый стиль).
+Display: 0.96" OLED Display (I2C, SSD1306 controller, 128x64, White pixels).
 
-Сборка: Ультракомпактная конструкция «сэндвич» (спина к спине). Компоненты напрямую паяются с помощью гибких проводов без штыревых разъемов для минимизации толщины, а двухсторонняя вспененная лента сл�
+Enclosure: Custom modular 3D-printed case (black and white styling).
 
-Программный стек
+Assembly: Ultra-compact "sandwich" (back-to-back) design. Components are directly soldered using flexible wires without pin headers to minimize thickness, with double-sided foam tape serving as an insulator.
 
-Хост-ПК (Linux): Python 3 (pyserial, psutil, subprocess).
+Software Stack
 
-Микроконтроль: C++ / Arduino IDE (библиотеки Adafruit GFX и Adafruit SSD1306).
+Host PC (Linux): Python 3 (pyserial, psutil, subprocess).
+
+Microcontroller: C++ / Arduino IDE (Adafruit GFX & Adafruit SSD1306 libraries).
