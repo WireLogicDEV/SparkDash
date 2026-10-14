@@ -1,4 +1,92 @@
-# SparkDash: External Hardware Telemetry Monitor for NVIDIA Spark
+# SparkDash (SP-01): Внешний аппаратный монитор для NVIDIA Spark
+
+### О проекте
+
+**SparkDash** (идентификатор узла `SP-01`) — отказоустойчивый внешний аппаратный монитор ресурсов для рабочей станции NVIDIA Spark. Поскольку на архитектуре Spark центральный и графический процессоры используют общую память (Unified Memory), утилита `nvidia-smi` не отдает отдельный счетчик VRAM. Проект решает эту задачу, объединяя мониторинг реально занятой системной памяти (за вычетом доступной памяти и освобождаемого кэша) с текущей загрузкой ядра GPU и температурой на контрастном I2C OLED-дисплее с разрешением 128x64 пикселя.
+
+### Ключевые инженерные решения
+
+* **Интерфейс из 4 зон и кастомный шрифт в PROGMEM:** Экран 128x64 разделен на четыре квадранта: имя узла (`SP-01`), температура видеочипа (`TEMP` в `C`), загрузка графического ядра (`GPU` в `%` или `-- %`, если метрика недоступна) и системная память (`RAM GiB`). Собственный узкий числовой шрифт 3x5 пикселей (`compactDigits`) хранится во флеш-памяти (`PROGMEM`) и позволяет отрисовывать длинные значения памяти вроде `111/122` в области 54x10 пикселей вместо стандартных 84x16.
+
+
+* **Отсутствие фрагментации памяти:** Прошивка написана на чистом C/C++ без использования динамических объектов `String` и функции `printf`, опираясь на фиксированный буфер `char serialLine[32]` для защиты 2 КиБ оперативной памяти SRAM классической Arduino Nano при круглосуточной работе.
+
+
+* **Экономия ресурса шины I2C и валидация пакетов:** Микроконтроллер кеширует предыдущие значения (`lastMemoryUsed`, `lastMemoryTotal`, `lastTemperature`, `lastUtilization`) и пропускает повторную отправку кадра по шине I2C, если показатели не изменились. Неблокирующий посимвольный парсер автоматически отбрасывает поврежденные или слишком длинные строки.
+
+
+* **Привязка к физическому ID порта и автовосстановление:** Фоновый Python-демон подключается к плате по неизменному аппаратному пути (`/dev/serial/by-id/...`) вместо динамических номеров `/dev/ttyUSB*` и автоматически переподключается при отсоединении USB-кабеля.
+
+
+
+### Аппаратная часть и схема пайки (I2C)
+
+* **Микроконтроллер:** Arduino Nano V3 (ATmega328P, разъем USB Type-C).
+
+
+* **Дисплей:** 0.96" OLED (контроллер SSD1306, 128x64, I2C-адрес `0x3C`).
+
+
+* **Подключение контактов:**
+* Дисплей **GND** ➔ Arduino **GND**
+
+* Дисплей **VDD** (VCC) ➔ Arduino **5V**
+
+* Дисплей **SCK** (SCL) ➔ Arduino **A5**
+
+* Дисплей **SDA** ➔ Arduino **A4**
+
+
+
+
+### Структура репозитория
+
+* `demon.py` — фоновый Python-скрипт сбора телеметрии (`psutil` + `nvidia-smi`) и отправки данных по Serial на скорости `115200` бод.
+
+
+* `Spark.hex` — готовая скомпилированная прошивка для быстрой загрузки в микроконтроллер без Arduino IDE.
+
+
+* `v2 (2).ino` (или `spark_dash/spark_dash.ino`) — исходный код прошивки микроконтроллера.
+
+
+
+### Протокол передачи данных (`115200` бод)
+
+Каждую секунду хост отправляет ASCII-строку с символом перевода строки `\n` на конце в следующем формате:
+`<RAM_занято_ГиБ>/<RAM_всего_ГиБ>,<GPU_темп_C>,<GPU_загрузка_%_или_NA>\n`
+*Пример:* `45/128,62,85\n` или `12/128,48,N/A\n`.
+
+### Установка и запуск
+
+#### 1. Прошивка микроконтроллера
+
+Вы можете скомпилировать и загрузить скетч через Arduino IDE (потребуются библиотеки `Adafruit GFX` и `Adafruit SSD1306`) либо прошить готовый бинарный файл `Spark.hex` напрямую из терминала Linux с помощью `avrdude`:
+
+```bash
+sudo apt install avrdude
+# Замените путь к порту на ваш (57600 бод для Old Bootloader или 115200 для New Bootloader)
+avrdude -v -p atmega328p -c arduino -P /dev/serial/by-id/usb-FTDI_FT232R_USB_UART_A5069RR4-if00-port0 -b 57600 -D -U flash:w:Spark.hex:i
+
+```
+
+После подачи питания на экране появится заставка `SP-01` и `WAITING FOR DATA` до момента подключения демона.
+
+#### 2. Настройка службы на Linux
+
+Установите необходимые системные пакеты (`python3-serial` и `python3-psutil`) и узнайте уникальный идентификатор вашей платы:
+
+```bash
+sudo apt update && sudo apt install python3-serial python3-psutil
+ls -l /dev/serial/by-id/
+
+```
+
+Укажите полученный путь в переменной `PORT` внутри файла `demon.py`, скопируйте скрипт в рабочую директорию и запустите службу `systemd`.
+
+---
+
+# SparkDash: External Hardware Telemetry Monitor for NVIDIA Spark (EN)
 
 ### Overview
 
@@ -39,6 +127,18 @@
 
 
 
+### Repository Structure
+
+* `demon.py` — Python host telemetry daemon (`psutil` + `nvidia-smi`) transmitting over Serial at `115200` baud.
+
+
+* `Spark.hex` — Pre-compiled Intel HEX firmware binary for direct flashing without Arduino IDE.
+
+
+* `v2 (2).ino` (or `spark_dash/spark_dash.ino`) — C++ microcontroller firmware source code.
+
+
+
 ### Serial Protocol (`115200` baud)
 
 The host sends newline-terminated ASCII strings every second in the following format:
@@ -49,12 +149,12 @@ The host sends newline-terminated ASCII strings every second in the following fo
 
 #### 1. Flashing the Microcontroller
 
-You can compile and upload `v2 (2).ino` via Arduino IDE (requires `Adafruit GFX` and `Adafruit SSD1306` libraries), or flash the pre-compiled `v2.nano.hex` binary directly from Linux using `avrdude`:
+You can compile and upload the `.ino` sketch via Arduino IDE (requires `Adafruit GFX` and `Adafruit SSD1306` libraries), or flash the pre-compiled `Spark.hex` binary directly from Linux using `avrdude`:
 
 ```bash
 sudo apt install avrdude
 # Replace the port with your actual device path (use 57600 baud for Old Bootloader, or 115200 for New Bootloader)
-avrdude -v -p atmega328p -c arduino -P /dev/serial/by-id/usb-FTDI_FT232R_USB_UART_A5069RR4-if00-port0 -b 57600 -D -U flash:w:v2.nano.hex:i
+avrdude -v -p atmega328p -c arduino -P /dev/serial/by-id/usb-FTDI_FT232R_USB_UART_A5069RR4-if00-port0 -b 57600 -D -U flash:w:Spark.hex:i
 
 ```
 
