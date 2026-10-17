@@ -1,84 +1,152 @@
+#!/usr/bin/env python3
+"""SparkDash host daemon: телеметрия NVIDIA DGX Spark -> Arduino по Serial.
+
+Раз в секунду отправляет строку:
+    <RAM занято GiB>/<RAM всего GiB>,<GPU °C или N/A>,<GPU % или N/A>\n
+
+Порт берётся (по порядку):
+    1. первый аргумент командной строки;
+    2. переменная окружения SPARKDASH_PORT;
+    3. единственное устройство в /dev/serial/by-id/.
+"""
+
+import glob
+import os
 import subprocess
-import psutil
-import serial
+import sys
 import time
 
-# --- НАСТРОЙКИ ---
-# Постоянный USB-путь платы: не зависит от номера /dev/ttyUSB*.
-PORT = '/dev/serial/by-id/usb-FTDI_FT232R_USB_UART_A5069RR4-if00-port0'
+import psutil
+import serial
+
 BAUD = 115200
+INTERVAL_S = 1.0
+NVIDIA_SMI_TIMEOUT_S = 5
+RECONNECT_DELAY_S = 5
+# Nano перезагружается при открытии порта (DTR): ждём загрузчик.
+RESET_DELAY_S = 3
+GIB = 1024 ** 3
+NA_VALUES = {'', 'N/A', '[N/A]', '[Not Supported]', 'Not Supported'}
+
+_last_message = None
+
+
+def log(message):
+    """Пишем в journald без буферизации и без повторов одной и той же ошибки."""
+    global _last_message
+    if message != _last_message:
+        print(message, flush=True)
+        _last_message = message
+
+
+def resolve_port():
+    if len(sys.argv) > 1:
+        return sys.argv[1]
+    env_port = os.environ.get('SPARKDASH_PORT')
+    if env_port:
+        return env_port
+    candidates = sorted(glob.glob('/dev/serial/by-id/*'))
+    if len(candidates) == 1:
+        return candidates[0]
+    if candidates:
+        log('Найдено несколько устройств, укажите SPARKDASH_PORT: '
+            + ', '.join(candidates))
+    else:
+        log('В /dev/serial/by-id/ нет устройств, жду подключения платы...')
+    return None
+
 
 def connect_serial():
-    """Безопасное подключение: если кабель не вставлен, скрипт будет ждать"""
+    """Ждёт плату и возвращает открытый порт; никогда не бросает исключений."""
     while True:
-        try:
-            ser = serial.Serial(PORT, BAUD, timeout=1)
-            print(f"Успешное подключение к Arduino на порту {PORT}")
-            return ser
-        except Exception as e:
-            print(f"Ожидание Arduino на {PORT}... (Ошибка: {e})")
-            time.sleep(5)
+        port = resolve_port()
+        if port:
+            try:
+                ser = serial.Serial(port, BAUD, timeout=1, write_timeout=2)
+                time.sleep(RESET_DELAY_S)
+                ser.reset_input_buffer()
+                log(f'Подключено к {port}')
+                return ser
+            except (serial.SerialException, OSError) as error:
+                log(f'Ожидание платы на {port}: {error}')
+        time.sleep(RECONNECT_DELAY_S)
+
+
+def parse_metric(text, maximum):
+    """Целое значение 0..maximum или None, если метрика недоступна."""
+    text = text.strip()
+    if text in NA_VALUES:
+        return None
+    value = int(round(float(text)))
+    return value if 0 <= value <= maximum else None
+
 
 def get_gpu_stats():
-    """Температура и загрузка GPU; None означает недоступную загрузку."""
+    """(температура °C, загрузка %); None — значение недоступно."""
+    cmd = [
+        'nvidia-smi',
+        '--query-gpu=temperature.gpu,utilization.gpu',
+        '--format=csv,noheader,nounits',
+    ]
     try:
-        # На Spark загрузка доступна, в отличие от отдельной VRAM.
-        cmd = [
-            'nvidia-smi', 
-            '--query-gpu=temperature.gpu,utilization.gpu',
-            '--format=csv,noheader,nounits'
-        ]
-        
-        output = subprocess.check_output(cmd, encoding='utf-8').strip()
-        temp_text, utilization_text = (value.strip() for value in output.split(','))
-        temp = 0 if temp_text in ('[N/A]', 'N/A') else int(float(temp_text))
-        utilization = (
-            None if utilization_text in ('[N/A]', 'N/A')
-            else int(float(utilization_text))
-        )
-        if utilization is not None and not 0 <= utilization <= 100:
-            raise ValueError('Загрузка GPU вне диапазона 0–100%')
-        return temp, utilization
-    except Exception as e:
-        print(f"Ошибка чтения данных GPU: {e}")
-        return 0, None
+        output = subprocess.check_output(
+            cmd, encoding='utf-8', stderr=subprocess.DEVNULL,
+            timeout=NVIDIA_SMI_TIMEOUT_S)
+        # На Spark один GPU; на всякий случай берём первую строку.
+        temp_text, util_text = output.strip().splitlines()[0].split(',')
+        return parse_metric(temp_text, 999), parse_metric(util_text, 100)
+    except (OSError, subprocess.SubprocessError, ValueError, IndexError) as error:
+        log(f'Не удалось прочитать данные GPU: {error}')
+        return None, None
+
+
+def get_memory_gib():
+    """Общая (unified) память: занято без учёта освобождаемого кэша."""
+    memory = psutil.virtual_memory()
+    total = int(memory.total / GIB + 0.5)
+    used = int((memory.total - memory.available) / GIB + 0.5)
+    return min(used, total), total
+
+
+def format_value(value):
+    return 'N/A' if value is None else str(value)
+
+
+def build_line():
+    used, total = get_memory_gib()
+    temperature, utilization = get_gpu_stats()
+    return (f'{used}/{total},{format_value(temperature)},'
+            f'{format_value(utilization)}\n')
+
+
+def main():
+    log('Запуск SparkDash...')
+    ser = connect_serial()
+    next_tick = time.monotonic()
+    while True:
+        line = build_line()
+        try:
+            ser.write(line.encode('ascii'))
+        except (serial.SerialException, OSError) as error:
+            log(f'Связь с платой потеряна ({error}), переподключаюсь...')
+            try:
+                ser.close()
+            except Exception:
+                pass
+            ser = connect_serial()
+            next_tick = time.monotonic()
+            continue
+        next_tick += INTERVAL_S
+        delay = next_tick - time.monotonic()
+        if delay > 0:
+            time.sleep(delay)
+        else:
+            # nvidia-smi подвис или система перегружена: не догоняем пропуски.
+            next_tick = time.monotonic()
+
 
 if __name__ == '__main__':
-    print("Запуск службы аппаратного мониторинга...")
-    
-    arduino_serial = connect_serial()
-    
-    # Пауза, чтобы Arduino успела перезагрузиться и показать стартовую анимацию
-    time.sleep(3) 
-
-    while True:
-        try:
-            # 1. Общая память системы (на Spark используется CPU и GPU).
-            # Исключаем доступную память, включая освобождаемый кэш.
-            memory = psutil.virtual_memory()
-            memory_used_gib = (memory.total - memory.available) / (1024 ** 3)
-            memory_total_gib = memory.total / (1024 ** 3)
-
-            # 2. Температура и реальная загрузка GPU (не процент занятой ОЗУ).
-            gpu_temp, gpu_utilization = get_gpu_stats()
-            gpu_percent = 'N/A' if gpu_utilization is None else str(gpu_utilization)
-            
-            # 3. Формируем строку строго по протоколу
-            # Память used/total (целые ГиБ), °C, GPU % или N/A.
-            data_str = (
-                f"{memory_used_gib:.0f}/{memory_total_gib:.0f},"
-                f"{gpu_temp},{gpu_percent}\n"
-            )
-            
-            # 4. Отправляем в Arduino
-            arduino_serial.write(data_str.encode('utf-8'))
-            
-            time.sleep(1)
-            
-        except serial.SerialException:
-            print("Связь с Arduino потеряна. Пытаюсь переподключиться...")
-            arduino_serial = connect_serial()
-            time.sleep(3)
-        except Exception as e:
-            print(f"Непредвиденная ошибка в главном цикле: {e}")
-            time.sleep(1)
+    try:
+        main()
+    except KeyboardInterrupt:
+        pass
