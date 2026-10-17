@@ -1,176 +1,199 @@
-# SparkDash (SP-01): Внешний аппаратный монитор для NVIDIA Spark
+# SparkDash (SP-01): внешний аппаратный монитор для NVIDIA DGX Spark
 
 <img width="3000" height="4000" alt="1792220074081" src="https://github.com/user-attachments/assets/b4348114-dedd-4af8-9fb5-14be1b2d9239" />
 
+[English version below](#sparkdash-sp-01-external-hardware-monitor-for-nvidia-dgx-spark)
 
 ### О проекте
 
-**SparkDash** (идентификатор узла `SP-01`) — отказоустойчивый внешний аппаратный монитор ресурсов для рабочей станции NVIDIA Spark. Поскольку на архитектуре Spark центральный и графический процессоры используют общую память (Unified Memory), утилита `nvidia-smi` не отдает отдельный счетчик VRAM. Проект решает эту задачу, объединяя мониторинг реально занятой системной памяти (за вычетом доступной памяти и освобождаемого кэша) с текущей загрузкой ядра GPU и температурой на контрастном I2C OLED-дисплее с разрешением 128x64 пикселя.
+**SparkDash** (идентификатор узла `SP-01`) — внешний монитор ресурсов для рабочей станции NVIDIA DGX Spark. На Spark процессор и видеочип используют общую память (Unified Memory), поэтому `nvidia-smi` не отдаёт отдельный счётчик VRAM. SparkDash показывает реально занятую общую память (без освобождаемого кэша), загрузку ядра GPU и его температуру на OLED-дисплее 128x64.
 
-### Ключевые инженерные решения
+### Возможности
 
-* **Интерфейс из 4 зон и кастомный шрифт в PROGMEM:** Экран 128x64 разделен на четыре квадранта: имя узла (`SP-01`), температура видеочипа (`TEMP` в `C`), загрузка графического ядра (`GPU` в `%` или `-- %`, если метрика недоступна) и системная память (`RAM GiB`). Собственный узкий числовой шрифт 3x5 пикселей (`compactDigits`) хранится во флеш-памяти (`PROGMEM`) и позволяет отрисовывать длинные значения памяти вроде `111/122` в области 54x10 пикселей вместо стандартных 84x16.
+* **Экран из четырёх зон:** имя узла (`SP-01`), температура GPU (`TEMP`, °C), загрузка GPU (`GPU`, %) и общая память (`RAM GiB`). Если метрика недоступна, вместо числа выводится `--`. Узкий шрифт 3x5 в `PROGMEM` умещает `111/120` в 54x10 пикселей.
+* **Индикация пропажи данных:** если 5 секунд не приходит ни одной корректной строки, экран переключается на `NO DATA` — устаревшие цифры не выдаются за текущие. Через 5 минут без данных экран гаснет и включается сам при появлении данных.
+* **Защита OLED от выгорания:** каждые 2 минуты изображение сдвигается на 1 пиксель по кругу, яркость снижена до `0x40` (настраивается в начале скетча).
+* **Без фрагментации памяти:** нет `String`, `printf` и динамических объектов — только фиксированный буфер `char serialLine[32]`. Это важно: буфер дисплея уже занимает 1 КиБ из 2 КиБ SRAM Arduino Nano.
+* **Экономия шины I2C и валидация:** неизменившийся кадр повторно не отправляется. Неблокирующий парсер отбрасывает повреждённые, слишком длинные и выходящие за диапазон строки.
+* **Надёжный демон:** порт задаётся через `SPARKDASH_PORT` или находится автоматически, при отключении кабеля демон переподключается, у `nvidia-smi` есть таймаут.
+* **Индикация ошибки дисплея:** если OLED не найден на шине I2C, мигает встроенный светодиод Nano.
 
+### Аппаратная часть
 
-* **Отсутствие фрагментации памяти:** Прошивка написана на чистом C/C++ без использования динамических объектов `String` и функции `printf`, опираясь на фиксированный буфер `char serialLine[32]` для защиты 2 КиБ оперативной памяти SRAM классической Arduino Nano при круглосуточной работе.
+* **Микроконтроллер:** Arduino Nano V3 (ATmega328P, USB Type-C).
+* **Дисплей:** 0.96" OLED, контроллер SSD1306, 128x64, I2C-адрес `0x3C`.
 
-
-* **Экономия ресурса шины I2C и валидация пакетов:** Микроконтроллер кеширует предыдущие значения (`lastMemoryUsed`, `lastMemoryTotal`, `lastTemperature`, `lastUtilization`) и пропускает повторную отправку кадра по шине I2C, если показатели не изменились. Неблокирующий посимвольный парсер автоматически отбрасывает поврежденные или слишком длинные строки.
-
-
-* **Привязка к физическому ID порта и автовосстановление:** Фоновый Python-демон подключается к плате по неизменному аппаратному пути (`/dev/serial/by-id/...`) вместо динамических номеров `/dev/ttyUSB*` и автоматически переподключается при отсоединении USB-кабеля.
-
-
-
-### Аппаратная часть и схема пайки (I2C)
-
-* **Микроконтроллер:** Arduino Nano V3 (ATmega328P, разъем USB Type-C).
-
-
-* **Дисплей:** 0.96" OLED (контроллер SSD1306, 128x64, I2C-адрес `0x3C`).
-
-
-* **Подключение контактов:**
-* Дисплей **GND** ➔ Arduino **GND**
-
-* Дисплей **VDD** (VCC) ➔ Arduino **5V**
-
-* Дисплей **SCK** (SCL) ➔ Arduino **A5**
-
-* Дисплей **SDA** ➔ Arduino **A4**
-
-
-
+| Дисплей | Arduino Nano |
+|---|---|
+| GND | GND |
+| VDD (VCC) | 5V |
+| SCK (SCL) | A5 |
+| SDA | A4 |
 
 ### Структура репозитория
 
-* `demon.py` — фоновый Python-скрипт сбора телеметрии (`psutil` + `nvidia-smi`) и отправки данных по Serial на скорости `115200` бод.
+| Файл | Назначение |
+|---|---|
+| `v2.ino` | Прошивка Arduino |
+| `v2.nano.hex` | Скомпилированная прошивка для прошивки через `avrdude` |
+| `demon.py` | Демон сбора телеметрии (`psutil` + `nvidia-smi`) |
+| `sparkdash.service` | Unit-файл systemd для автозапуска демона |
 
+### Протокол (`115200` бод)
 
-* `Spark.hex` — готовая скомпилированная прошивка для быстрой загрузки в микроконтроллер без Arduino IDE.
+Раз в секунду хост отправляет ASCII-строку, оканчивающуюся `\n`:
 
+```
+<RAM занято GiB>/<RAM всего GiB>,<GPU °C или N/A>,<GPU % или N/A>
+```
 
-* `v2 (2).ino` (или `spark_dash/spark_dash.ino`) — исходный код прошивки микроконтроллера.
+Примеры: `45/120,62,85` или `12/120,N/A,N/A`.
 
+> Прошивку и демон обновляйте вместе: старая прошивка отбрасывает строки с `N/A` в поле температуры.
 
-
-### Протокол передачи данных (`115200` бод)
-
-Каждую секунду хост отправляет ASCII-строку с символом перевода строки `\n` на конце в следующем формате:
-`<RAM_занято_ГиБ>/<RAM_всего_ГиБ>,<GPU_темп_C>,<GPU_загрузка_%_или_NA>\n`
-*Пример:* `45/128,62,85\n` или `12/128,48,N/A\n`.
-
-### Установка и запуск
+### Установка
 
 #### 1. Прошивка микроконтроллера
 
-Вы можете скомпилировать и загрузить скетч через Arduino IDE (потребуются библиотеки `Adafruit GFX` и `Adafruit SSD1306`) либо прошить готовый бинарный файл `Spark.hex` напрямую из терминала Linux с помощью `avrdude`:
+**Arduino IDE:** установите библиотеки `Adafruit GFX Library` и `Adafruit SSD1306`, откройте `v2.ino` (IDE предложит положить его в папку `v2`), выберите плату Arduino Nano и загрузите.
+
+**arduino-cli** (сборка и загрузка из терминала):
+
+```bash
+arduino-cli core install arduino:avr
+arduino-cli lib install "Adafruit GFX Library" "Adafruit SSD1306"
+mkdir v2 && cp v2.ino v2/
+# Для клонов со старым загрузчиком: --fqbn arduino:avr:nano:cpu=atmega328old
+arduino-cli compile --fqbn arduino:avr:nano --output-dir build v2
+arduino-cli upload -p /dev/ttyUSB0 --fqbn arduino:avr:nano v2
+```
+
+Готовый `.hex` после сборки лежит в `build/v2.ino.hex`.
+
+**avrdude** (готовый `.hex` без IDE):
 
 ```bash
 sudo apt install avrdude
-# Замените путь к порту на ваш (57600 бод для Old Bootloader или 115200 для New Bootloader)
-avrdude -v -p atmega328p -c arduino -P /dev/serial/by-id/usb-FTDI_FT232R_USB_UART_A5069RR4-if00-port0 -b 57600 -D -U flash:w:Spark.hex:i
-
+# 57600 — старый загрузчик, 115200 — новый
+avrdude -v -p atmega328p -c arduino -P /dev/ttyUSB0 -b 57600 -D -U flash:w:v2.nano.hex:i
 ```
 
-После подачи питания на экране появится заставка `SP-01` и `WAITING FOR DATA` до момента подключения демона.
+После подачи питания на экране появятся `SP-01` и `WAITING FOR DATA`.
 
-#### 2. Настройка службы на Linux
-
-Установите необходимые системные пакеты (`python3-serial` и `python3-psutil`) и узнайте уникальный идентификатор вашей платы:
+#### 2. Демон на Spark
 
 ```bash
 sudo apt update && sudo apt install python3-serial python3-psutil
-ls -l /dev/serial/by-id/
+ls -l /dev/serial/by-id/      # узнайте путь к плате
 
+sudo mkdir -p /opt/spark_monitor
+sudo cp demon.py /opt/spark_monitor/
+sudo cp sparkdash.service /etc/systemd/system/
+sudo nano /etc/systemd/system/sparkdash.service   # пропишите SPARKDASH_PORT
+sudo systemctl daemon-reload
+sudo systemctl enable --now sparkdash
+journalctl -u sparkdash -f    # логи
 ```
 
-Укажите полученный путь в переменной `PORT` внутри файла `demon.py`, скопируйте скрипт в рабочую директорию и запустите службу `systemd`.
+У клонов Nano с чипом CH340 путь обычно выглядит как `usb-1a86_USB_Serial-if00-port0`, у плат с FTDI — `usb-FTDI_FT232R_USB_UART_<серийный номер>-if00-port0`. Если к Spark подключена только одна такая плата, `SPARKDASH_PORT` можно не задавать.
+
+Для ручной проверки: `python3 demon.py /dev/serial/by-id/<ваша плата>`.
 
 ---
 
-# SparkDash: External Hardware Telemetry Monitor for NVIDIA Spark (EN)
+# SparkDash (SP-01): External Hardware Monitor for NVIDIA DGX Spark
 
 ### Overview
 
-**SparkDash** (node ID `SP-01`) is a fault-tolerant, plug-and-play external hardware monitor designed for the NVIDIA Spark workstation. Because the NVIDIA Spark architecture utilizes a unified memory pool shared between the CPU and GPU, separate VRAM counters are not exposed via `nvidia-smi`. This project solves that by combining system-wide memory telemetry (excluding reclaimable cache) with real-time GPU core utilization and temperature metrics on a crisp 128x64 I2C OLED display.
+**SparkDash** (node ID `SP-01`) is an external resource monitor for the NVIDIA DGX Spark workstation. The Spark's CPU and GPU share a unified memory pool, so `nvidia-smi` exposes no separate VRAM counter. SparkDash shows actually used unified memory (excluding reclaimable cache), GPU core utilization and GPU temperature on a 128x64 OLED display.
 
-### Key Engineering Features
+### Features
 
-* **4-Quadrant UI & Custom PROGMEM Font:** The 128x64 screen is divided into four dedicated zones: Node ID (`SP-01`), GPU Temperature (`TEMP` in `C`), GPU Core Load (`GPU` in `%` or `-- %` when unavailable), and System Memory (`RAM GiB`). A custom 3x5 pixel numeric font (`compactDigits`) stored in flash memory (`PROGMEM`) renders long memory strings like `111/122` in just 54x10 pixels instead of 84x16.
+* **4-zone screen:** node ID (`SP-01`), GPU temperature (`TEMP`, °C), GPU load (`GPU`, %) and unified memory (`RAM GiB`). Unavailable metrics are shown as `--`. A narrow 3x5 font in `PROGMEM` fits `111/120` into 54x10 pixels.
+* **Stale data detection:** if no valid line arrives for 5 seconds, the screen switches to `NO DATA` so old values are never shown as live. After 5 minutes without data the panel turns off and wakes up automatically when data returns.
+* **OLED burn-in protection:** the image shifts by 1 pixel in a circle every 2 minutes, and contrast is lowered to `0x40` (configurable at the top of the sketch).
+* **No heap fragmentation:** no `String`, `printf` or dynamic objects — just a fixed `char serialLine[32]` buffer. This matters because the display buffer already takes 1 KiB of the Nano's 2 KiB SRAM.
+* **I2C savings and validation:** unchanged frames are not resent. The non-blocking parser drops corrupted, oversized and out-of-range lines.
+* **Robust daemon:** the port is set via `SPARKDASH_PORT` or auto-detected, the daemon reconnects after the cable is unplugged, and `nvidia-smi` calls have a timeout.
+* **Display fault indication:** if the OLED is not found on the I2C bus, the Nano's built-in LED blinks.
 
-
-* **Zero Heap Fragmentation:** Written in pure C/C++ without dynamic `String` objects or `printf`, the firmware relies on a fixed 32-byte buffer (`char serialLine[32]`) to protect the Arduino Nano's 2 KiB SRAM during 24/7 operation.
-
-
-* **I2C Bus Wear Leveling & Packet Validation:** The microcontroller caches previous telemetry values (`lastMemoryUsed`, `lastMemoryTotal`, `lastTemperature`, `lastUtilization`) and skips I2C screen redraws if metrics remain unchanged. Non-blocking character-by-character serial parsing automatically discards corrupted or oversized packets.
-
-
-* **Persistent USB Binding & Auto-Recovery:** The Python host daemon connects via a static hardware path (`/dev/serial/by-id/...`) rather than dynamic `/dev/ttyUSB*` numbers and automatically reconnects if the USB cable is unplugged.
-
-
-
-### Hardware & Wiring (I2C)
+### Hardware
 
 * **Microcontroller:** Arduino Nano V3 (ATmega328P, USB Type-C).
+* **Display:** 0.96" OLED, SSD1306, 128x64, I2C address `0x3C`.
 
-
-* **Display:** 0.96" OLED (SSD1306, 128x64, I2C address `0x3C`).
-
-
-* **Pinout Mapping:**
-* Display **GND** ➔ Arduino **GND**
-
-* Display **VDD** (VCC) ➔ Arduino **5V**
-
-* Display **SCK** (SCL) ➔ Arduino **A5**
-
-* Display **SDA** ➔ Arduino **A4**
-
-
-
+| Display | Arduino Nano |
+|---|---|
+| GND | GND |
+| VDD (VCC) | 5V |
+| SCK (SCL) | A5 |
+| SDA | A4 |
 
 ### Repository Structure
 
-* `demon.py` — Python host telemetry daemon (`psutil` + `nvidia-smi`) transmitting over Serial at `115200` baud.
-
-
-* `Spark.hex` — Pre-compiled Intel HEX firmware binary for direct flashing without Arduino IDE.
-
-
-* `v2 (2).ino` (or `spark_dash/spark_dash.ino`) — C++ microcontroller firmware source code.
-
-
+| File | Purpose |
+|---|---|
+| `v2.ino` | Arduino firmware |
+| `v2.nano.hex` | Pre-compiled firmware for flashing with `avrdude` |
+| `demon.py` | Telemetry daemon (`psutil` + `nvidia-smi`) |
+| `sparkdash.service` | systemd unit for running the daemon |
 
 ### Serial Protocol (`115200` baud)
 
-The host sends newline-terminated ASCII strings every second in the following format:
-`<RAM_used_GiB>/<RAM_total_GiB>,<GPU_temp_C>,<GPU_util_percent_or_NA>\n`
-*Example:* `45/128,62,85\n` or `12/128,48,N/A\n`.
+Every second the host sends a newline-terminated ASCII line:
 
-### Installation & Deployment
+```
+<RAM used GiB>/<RAM total GiB>,<GPU °C or N/A>,<GPU % or N/A>
+```
+
+Examples: `45/120,62,85` or `12/120,N/A,N/A`.
+
+> Update the firmware and the daemon together: older firmware rejects lines with `N/A` in the temperature field.
+
+### Installation
 
 #### 1. Flashing the Microcontroller
 
-You can compile and upload the `.ino` sketch via Arduino IDE (requires `Adafruit GFX` and `Adafruit SSD1306` libraries), or flash the pre-compiled `Spark.hex` binary directly from Linux using `avrdude`:
+**Arduino IDE:** install the `Adafruit GFX Library` and `Adafruit SSD1306` libraries, open `v2.ino` (the IDE will offer to move it into a `v2` folder), select Arduino Nano and upload.
+
+**arduino-cli:**
+
+```bash
+arduino-cli core install arduino:avr
+arduino-cli lib install "Adafruit GFX Library" "Adafruit SSD1306"
+mkdir v2 && cp v2.ino v2/
+# Clones with the old bootloader: --fqbn arduino:avr:nano:cpu=atmega328old
+arduino-cli compile --fqbn arduino:avr:nano --output-dir build v2
+arduino-cli upload -p /dev/ttyUSB0 --fqbn arduino:avr:nano v2
+```
+
+The compiled firmware is saved as `build/v2.ino.hex`.
+
+**avrdude** (pre-compiled `.hex`, no IDE):
 
 ```bash
 sudo apt install avrdude
-# Replace the port with your actual device path (use 57600 baud for Old Bootloader, or 115200 for New Bootloader)
-avrdude -v -p atmega328p -c arduino -P /dev/serial/by-id/usb-FTDI_FT232R_USB_UART_A5069RR4-if00-port0 -b 57600 -D -U flash:w:Spark.hex:i
-
+# 57600 for the old bootloader, 115200 for the new one
+avrdude -v -p atmega328p -c arduino -P /dev/ttyUSB0 -b 57600 -D -U flash:w:v2.nano.hex:i
 ```
 
-Once powered, the screen will display `SP-01` and `WAITING FOR DATA` until the daemon connects.
+Once powered, the screen shows `SP-01` and `WAITING FOR DATA`.
 
-#### 2. Setting Up the Linux Daemon
-
-Install the required system packages (`python3-serial` and `python3-psutil`) and verify your board's unique serial ID:
+#### 2. Daemon on the Spark
 
 ```bash
 sudo apt update && sudo apt install python3-serial python3-psutil
-ls -l /dev/serial/by-id/
+ls -l /dev/serial/by-id/      # find your board
 
+sudo mkdir -p /opt/spark_monitor
+sudo cp demon.py /opt/spark_monitor/
+sudo cp sparkdash.service /etc/systemd/system/
+sudo nano /etc/systemd/system/sparkdash.service   # set SPARKDASH_PORT
+sudo systemctl daemon-reload
+sudo systemctl enable --now sparkdash
+journalctl -u sparkdash -f    # logs
 ```
 
-Update the `PORT` variable in `demon.py` with your device path, copy the script to `/opt/spark_monitor/demon.py`, and enable the `systemd` service.
+Nano clones with a CH340 chip usually appear as `usb-1a86_USB_Serial-if00-port0`, FTDI boards as `usb-FTDI_FT232R_USB_UART_<serial>-if00-port0`. If only one such board is connected, `SPARKDASH_PORT` can be omitted.
+
+Manual test run: `python3 demon.py /dev/serial/by-id/<your board>`.
