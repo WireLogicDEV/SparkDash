@@ -1,0 +1,20 @@
+[Unit]
+Description=SparkDash external hardware monitor
+After=multi-user.target
+
+[Service]
+Type=simple
+# Путь к плате: ls -l /dev/serial/by-id/
+# Если плата одна, строку можно удалить — демон найдёт её сам.
+Environment=SPARKDASH_PORT=/dev/serial/by-id/usb-FTDI_FT232R_USB_UART_A5069RR4-if00-port0
+ExecStart=/usr/bin/python3 -u /opt/spark_monitor/demon.py
+Restart=always
+RestartSec=5
+
+# Отдельный непривилегированный пользователь с доступом к Serial-портам.
+DynamicUser=yes
+SupplementaryGroups=dialout
+NoNewPrivileges=yes
+
+[Install]
+WantedBy=multi-user.target
