@@ -35,7 +35,6 @@
 | Файл | Назначение |
 |---|---|
 | `v2.ino` | Прошивка Arduino |
-| `v2.nano.hex` | Скомпилированная прошивка для прошивки через `avrdude` |
 | `demon.py` | Демон сбора телеметрии (`psutil` + `nvidia-smi`) |
 | `sparkdash.service` | Unit-файл systemd для автозапуска демона |
 
@@ -70,12 +69,12 @@ arduino-cli upload -p /dev/ttyUSB0 --fqbn arduino:avr:nano v2
 
 Готовый `.hex` после сборки лежит в `build/v2.ino.hex`.
 
-**avrdude** (готовый `.hex` без IDE):
+**avrdude** (загрузка собранного `.hex` без IDE):
 
 ```bash
 sudo apt install avrdude
 # 57600 — старый загрузчик, 115200 — новый
-avrdude -v -p atmega328p -c arduino -P /dev/ttyUSB0 -b 57600 -D -U flash:w:v2.nano.hex:i
+avrdude -v -p atmega328p -c arduino -P /dev/ttyUSB0 -b 57600 -D -U flash:w:build/v2.ino.hex:i
 ```
 
 После подачи питания на экране появятся `SP-01` и `WAITING FOR DATA`.
@@ -134,7 +133,6 @@ journalctl -u sparkdash -f    # логи
 | File | Purpose |
 |---|---|
 | `v2.ino` | Arduino firmware |
-| `v2.nano.hex` | Pre-compiled firmware for flashing with `avrdude` |
 | `demon.py` | Telemetry daemon (`psutil` + `nvidia-smi`) |
 | `sparkdash.service` | systemd unit for running the daemon |
 
@@ -169,12 +167,12 @@ arduino-cli upload -p /dev/ttyUSB0 --fqbn arduino:avr:nano v2
 
 The compiled firmware is saved as `build/v2.ino.hex`.
 
-**avrdude** (pre-compiled `.hex`, no IDE):
+**avrdude** (flashing the compiled `.hex` without the IDE):
 
 ```bash
 sudo apt install avrdude
 # 57600 for the old bootloader, 115200 for the new one
-avrdude -v -p atmega328p -c arduino -P /dev/ttyUSB0 -b 57600 -D -U flash:w:v2.nano.hex:i
+avrdude -v -p atmega328p -c arduino -P /dev/ttyUSB0 -b 57600 -D -U flash:w:build/v2.ino.hex:i
 ```
 
 Once powered, the screen shows `SP-01` and `WAITING FOR DATA`.

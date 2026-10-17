@@ -1,6 +1,5 @@
 [Unit]
 Description=SparkDash external hardware monitor
-After=multi-user.target
 
 [Service]
 Type=simple

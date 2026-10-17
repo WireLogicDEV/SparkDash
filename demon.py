@@ -21,7 +21,8 @@ import serial
 
 BAUD = 115200
 INTERVAL_S = 1.0
-NVIDIA_SMI_TIMEOUT_S = 5
+# Меньше таймаута NO DATA на плате (5 с): при зависании nvidia-smi не мелькает NO DATA.
+NVIDIA_SMI_TIMEOUT_S = 3
 RECONNECT_DELAY_S = 5
 # Nano перезагружается при открытии порта (DTR): ждём загрузчик.
 RESET_DELAY_S = 3
