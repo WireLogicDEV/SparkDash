@@ -12,6 +12,7 @@
 
 * **Экран из четырёх зон:** имя узла (`SP-01`), температура GPU (`TEMP`, °C), загрузка GPU (`GPU`, %) и общая память (`RAM GiB`). Если метрика недоступна, вместо числа выводится `--`. Узкий шрифт 3x5 в `PROGMEM` умещает `111/120` в 54x10 пикселей.
 * **Индикация пропажи данных:** если 5 секунд не приходит ни одной корректной строки, экран переключается на `NO DATA` — устаревшие цифры не выдаются за текущие. Через 5 минут без данных экран гаснет и включается сам при появлении данных.
+* **Сигнал перегрева:** при температуре GPU от 82 °C зона `TEMP` мигает (инвертируется раз в 0,5 с), и синхронно с ней мигает светодиод `L` на Nano. Порог задаётся `TEMP_ALARM_C` в начале скетча.
 * **Защита OLED от выгорания:** каждые 2 минуты изображение сдвигается на 1 пиксель по кругу, яркость снижена до `0x40` (настраивается в начале скетча).
 * **Без фрагментации памяти:** нет `String`, `printf` и динамических объектов — только фиксированный буфер `char serialLine[32]`. Это важно: буфер дисплея уже занимает 1 КиБ из 2 КиБ SRAM Arduino Nano.
 * **Экономия шины I2C и валидация:** неизменившийся кадр повторно не отправляется. Неблокирующий парсер отбрасывает повреждённые, слишком длинные и выходящие за диапазон строки.
@@ -110,6 +111,7 @@ journalctl -u sparkdash -f    # логи
 
 * **4-zone screen:** node ID (`SP-01`), GPU temperature (`TEMP`, °C), GPU load (`GPU`, %) and unified memory (`RAM GiB`). Unavailable metrics are shown as `--`. A narrow 3x5 font in `PROGMEM` fits `111/120` into 54x10 pixels.
 * **Stale data detection:** if no valid line arrives for 5 seconds, the screen switches to `NO DATA` so old values are never shown as live. After 5 minutes without data the panel turns off and wakes up automatically when data returns.
+* **Overheat alert:** at a GPU temperature of 82 °C or higher the `TEMP` zone blinks (inverted every 0.5 s) and the Nano's `L` LED blinks in sync. The threshold is `TEMP_ALARM_C` at the top of the sketch.
 * **OLED burn-in protection:** the image shifts by 1 pixel in a circle every 2 minutes, and contrast is lowered to `0x40` (configurable at the top of the sketch).
 * **No heap fragmentation:** no `String`, `printf` or dynamic objects — just a fixed `char serialLine[32]` buffer. This matters because the display buffer already takes 1 KiB of the Nano's 2 KiB SRAM.
 * **I2C savings and validation:** unchanged frames are not resent. The non-blocking parser drops corrupted, oversized and out-of-range lines.

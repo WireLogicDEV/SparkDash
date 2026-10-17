@@ -21,6 +21,10 @@ const uint32_t SHIFT_PERIOD_MS = 120000UL; // 2 минуты
 // Яркость 0..255. Меньше — медленнее выгорание. Заводское значение 0xCF.
 const uint8_t CONTRAST = 0x40;
 const uint8_t I2C_ADDRESS = 0x3C;
+// С какой температуры GPU (°C) мигают зона TEMP и светодиод L.
+const int16_t TEMP_ALARM_C = 82;
+// Полупериод мигания при перегреве.
+const uint32_t ALARM_BLINK_MS = 500UL;
 // -------------------------------------------
 
 Adafruit_SSD1306 display(128, 64, &Wire, -1);
@@ -55,6 +59,10 @@ uint8_t shiftIndex = 0;
 int8_t shiftX = 0;
 int8_t shiftY = 0;
 uint32_t lastShiftMs = 0;
+
+// Перегрев: фаза мигания зоны TEMP и светодиода L.
+bool alarmPhase = false;
+uint32_t lastBlinkMs = 0;
 
 // ---------------- Вспомогательные функции ----------------
 
@@ -220,6 +228,9 @@ void drawTelemetry() {
   // Нижний правый: занято/всего общей памяти.
   centered(F("RAM GiB"), 64, 35, 64);
   compactMemory(current.memoryUsed, current.memoryTotal);
+
+  // Перегрев: инвертируем зону TEMP через кадр.
+  if (alarmPhase) display.fillRect(64, 0, 64, 32, SSD1306_INVERSE);
 }
 
 void drawStatus(const __FlashStringHelper *message) {
@@ -301,8 +312,30 @@ void updatePixelShift(uint32_t now) {
   if (screen != SCREEN_OFF) needsRedraw = true;
 }
 
+bool temperatureAlarm() {
+  return screen == SCREEN_DATA && current.temperature >= TEMP_ALARM_C;
+}
+
+void updateAlarm(uint32_t now) {
+  if (!temperatureAlarm()) {
+    // Перегрев прошёл или данные пропали: гасим светодиод, зона TEMP — обычная.
+    if (alarmPhase) {
+      alarmPhase = false;
+      digitalWrite(LED_BUILTIN, LOW);
+      needsRedraw = true;
+    }
+    return;
+  }
+  if (now - lastBlinkMs < ALARM_BLINK_MS) return;
+  lastBlinkMs = now;
+  alarmPhase = !alarmPhase;
+  digitalWrite(LED_BUILTIN, alarmPhase ? HIGH : LOW);
+  needsRedraw = true;
+}
+
 void setup() {
   pinMode(LED_BUILTIN, OUTPUT);
+  digitalWrite(LED_BUILTIN, LOW);
   Serial.begin(115200);
   if (!display.begin(SSD1306_SWITCHCAPVCC, I2C_ADDRESS)) {
     // Дисплей не найден: мигаем встроенным светодиодом.
@@ -325,6 +358,7 @@ void loop() {
   uint32_t now = millis();
   updateTimeouts(now);
   updatePixelShift(now);
+  updateAlarm(now);
   if (needsRedraw) {
     render();
     needsRedraw = false;
